@@ -7,6 +7,9 @@ type Stone = "black" | "white";
 type Cell = Stone | null;
 type Move = { row: number; col: number; stone: Stone };
 type GameMode = "ai" | "local";
+type AiDifficulty = "easy" | "normal" | "hard";
+
+const AI_LABELS: Record<AiDifficulty, string> = { easy: "简单", normal: "普通", hard: "困难" };
 
 const DIRECTIONS = [[1, 0], [0, 1], [1, 1], [1, -1]];
 const emptyBoard = (): Cell[][] =>
@@ -54,7 +57,7 @@ function placementScore(board: Cell[][], row: number, col: number, stone: Stone)
   return score;
 }
 
-function chooseAiMove(board: Cell[][]) {
+function chooseAiMove(board: Cell[][], difficulty: AiDifficulty) {
   const occupied: Array<[number, number]> = [];
   board.forEach((line, row) => line.forEach((cell, col) => cell && occupied.push([row, col])));
   if (!occupied.length) return { row: 7, col: 7 };
@@ -69,6 +72,10 @@ function chooseAiMove(board: Cell[][]) {
     }
   }
 
+  if (difficulty === "easy") {
+    return candidates[Math.floor(Math.random() * candidates.length)] ?? { row: 7, col: 7 };
+  }
+
   for (const candidate of candidates) {
     if (DIRECTIONS.some(([dr, dc]) => lineLength(board, candidate.row, candidate.col, "white", dr, dc) >= 5)) return candidate;
   }
@@ -80,7 +87,9 @@ function chooseAiMove(board: Cell[][]) {
     const attack = placementScore(board, candidate.row, candidate.col, "white");
     const defense = placementScore(board, candidate.row, candidate.col, "black");
     const center = 14 - (Math.abs(candidate.row - 7) + Math.abs(candidate.col - 7));
-    const score = attack * 1.08 + defense * 1.16 + center;
+    const score = difficulty === "hard"
+      ? attack * 1.14 + defense * 1.26 + center * 2
+      : attack * 1.02 + defense * 1.04 + center;
     return score > best.score ? { ...candidate, score } : best;
   }, { row: 7, col: 7, score: -1 });
 }
@@ -90,6 +99,7 @@ export default function Home() {
   const [history, setHistory] = useState<Move[]>([]);
   const [winner, setWinner] = useState<Stone | "draw" | null>(null);
   const [mode, setMode] = useState<GameMode | null>(null);
+  const [aiDifficulty, setAiDifficulty] = useState<AiDifficulty | null>(null);
   const [aiThinking, setAiThinking] = useState(false);
   const turn: Stone = history.length % 2 === 0 ? "black" : "white";
   const lastMove = history.at(-1);
@@ -98,7 +108,7 @@ export default function Home() {
     if (mode !== "ai" || turn !== "white" || winner) return;
     setAiThinking(true);
     const timer = window.setTimeout(() => {
-      const move = chooseAiMove(board);
+      const move = chooseAiMove(board, aiDifficulty ?? "normal");
       const next = board.map((line) => [...line]);
       next[move.row][move.col] = "white";
       const nextHistory = [...history, { ...move, stone: "white" as const }];
@@ -112,7 +122,7 @@ export default function Home() {
       window.clearTimeout(timer);
       setAiThinking(false);
     };
-  }, [board, history, mode, turn, winner]);
+  }, [aiDifficulty, board, history, mode, turn, winner]);
 
   const statusText = useMemo(() => {
     if (!mode) return "请选择对局方式";
@@ -129,9 +139,10 @@ export default function Home() {
     setAiThinking(false);
   }
 
-  function selectMode(nextMode: GameMode) {
+  function selectMode(nextMode: GameMode, difficulty: AiDifficulty | null = null) {
     resetBoard();
     setMode(nextMode);
+    setAiDifficulty(difficulty);
   }
 
   function play(row: number, col: number) {
@@ -159,6 +170,7 @@ export default function Home() {
   function changeMode() {
     resetBoard();
     setMode(null);
+    setAiDifficulty(null);
   }
 
   const winnerName = winner === "draw" ? "本局和棋" : winner === "black"
@@ -171,7 +183,7 @@ export default function Home() {
         <a className="brand" href="#game" aria-label="弈间首页">
           <span className="brand-mark" aria-hidden="true">弈</span><span>弈间</span>
         </a>
-        <div className="header-note">{mode === "ai" ? "人机对弈 · 你执黑" : mode === "local" ? "双人同屏对弈" : "选择你的对局"}</div>
+        <div className="header-note">{mode === "ai" ? `人机对弈 · ${AI_LABELS[aiDifficulty ?? "normal"]} · 你执黑` : mode === "local" ? "双人同屏对弈" : "选择你的对局"}</div>
       </header>
 
       <section className="hero" id="game">
@@ -184,9 +196,14 @@ export default function Home() {
             <div className="mode-card">
               <small>选择对局方式</small>
               <div className="mode-options">
-                <button className="mode-option featured" onClick={() => selectMode("ai")}>
-                  <span className="mode-icon">AI</span><span><strong>挑战 AI</strong><em>你执黑棋，AI 执白棋</em></span>
-                </button>
+                <div className="ai-option-group">
+                  <div className="ai-option-title"><span className="mode-icon">AI</span><span><strong>挑战 AI</strong><em>你执黑棋，选择对手强度</em></span></div>
+                  <div className="difficulty-options" aria-label="选择 AI 难度">
+                    <button onClick={() => selectMode("ai", "easy")}><strong>简单</strong><span>轻松落子</span></button>
+                    <button className="recommended" onClick={() => selectMode("ai", "normal")}><strong>普通</strong><span>攻守均衡</span></button>
+                    <button onClick={() => selectMode("ai", "hard")}><strong>困难</strong><span>步步紧逼</span></button>
+                  </div>
+                </div>
                 <button className="mode-option" onClick={() => selectMode("local")}>
                   <span className="mode-icon two">双</span><span><strong>双人对弈</strong><em>两人轮流在本机落子</em></span>
                 </button>
@@ -196,7 +213,7 @@ export default function Home() {
             <>
               <div className="turn-card" aria-live="polite">
                 <span className={`turn-stone ${turn}`} />
-                <div><small>{aiThinking ? "请稍候" : `第 ${history.length + 1} 手`}</small><strong>{statusText}</strong></div>
+                <div><small>{aiThinking ? "请稍候" : mode === "ai" ? `${AI_LABELS[aiDifficulty ?? "normal"]} AI · 第 ${history.length + 1} 手` : `第 ${history.length + 1} 手`}</small><strong>{statusText}</strong></div>
               </div>
               <div className="actions">
                 <button className="primary-action" onClick={resetBoard}>重新开局</button>
