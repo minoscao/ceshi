@@ -176,6 +176,11 @@ export default function Home() {
   const winnerName = winner === "draw" ? "本局和棋" : winner === "black"
     ? (mode === "ai" ? "你赢了" : "黑棋获胜")
     : (mode === "ai" ? "AI 获胜" : "白棋获胜");
+  const resultMessage = winner === "draw"
+    ? "棋逢对手，再来一局吧。"
+    : mode === "ai"
+      ? winner === "black" ? "大侠真厉害" : "鼠辈就这点实力"
+      : "五子连珠，胜负已定。";
 
   return (
     <main>
@@ -250,7 +255,7 @@ export default function Home() {
                 <span className={`result-stone ${winner === "draw" ? "split" : winner}`} />
                 <small>本局结束</small>
                 <h2 id="result-title">{winnerName}</h2>
-                <p>{winner === "draw" ? "棋逢对手，再来一局吧。" : "五子连珠，胜负已定。"}</p>
+                <p className={mode === "ai" && winner !== "draw" ? "result-quote" : ""}>{resultMessage}</p>
                 <div className="result-actions">
                   <button className="primary-action" onClick={resetBoard}>直接下一局</button>
                   <button className="secondary-action" onClick={changeMode}>更换模式</button>
