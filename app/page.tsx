@@ -57,20 +57,66 @@ function placementScore(board: Cell[][], row: number, col: number, stone: Stone)
   return score;
 }
 
-function chooseAiMove(board: Cell[][], difficulty: AiDifficulty) {
+function nearbyCandidates(board: Cell[][], radius = 2) {
   const occupied: Array<[number, number]> = [];
   board.forEach((line, row) => line.forEach((cell, col) => cell && occupied.push([row, col])));
-  if (!occupied.length) return { row: 7, col: 7 };
-
   const candidates: Array<{ row: number; col: number }> = [];
   for (let row = 0; row < BOARD_SIZE; row += 1) {
     for (let col = 0; col < BOARD_SIZE; col += 1) {
       if (board[row][col]) continue;
-      if (occupied.some(([r, c]) => Math.abs(r - row) <= 2 && Math.abs(c - col) <= 2)) {
+      if (occupied.some(([r, c]) => Math.abs(r - row) <= radius && Math.abs(c - col) <= radius)) {
         candidates.push({ row, col });
       }
     }
   }
+  return candidates;
+}
+
+function candidateScore(board: Cell[][], row: number, col: number, attackWeight = 1.1, defenseWeight = 1.2) {
+  const attack = placementScore(board, row, col, "white");
+  const defense = placementScore(board, row, col, "black");
+  const center = 14 - (Math.abs(row - 7) + Math.abs(col - 7));
+  return attack * attackWeight + defense * defenseWeight + center * 2;
+}
+
+function chooseHardMove(board: Cell[][], candidates: Array<{ row: number; col: number }>) {
+  const firstMoves = candidates
+    .map((candidate) => ({ ...candidate, score: candidateScore(board, candidate.row, candidate.col, 1.18, 1.34) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 14);
+
+  return firstMoves.reduce((best, candidate) => {
+    const afterWhite = board.map((line) => [...line]);
+    afterWhite[candidate.row][candidate.col] = "white";
+    const blackReplies = nearbyCandidates(afterWhite)
+      .map((reply) => ({ ...reply, pressure: candidateScore(afterWhite, reply.row, reply.col, .2, 1.5) }))
+      .sort((a, b) => b.pressure - a.pressure)
+      .slice(0, 10);
+
+    let worstReply = Number.POSITIVE_INFINITY;
+    for (const reply of blackReplies) {
+      const afterBlack = afterWhite.map((line) => [...line]);
+      afterBlack[reply.row][reply.col] = "black";
+      if (hasFive(afterBlack, reply.row, reply.col, "black")) {
+        worstReply = -2_000_000;
+        break;
+      }
+
+      const bestCounter = nearbyCandidates(afterBlack)
+        .map((counter) => candidateScore(afterBlack, counter.row, counter.col, 1.36, 1.18))
+        .sort((a, b) => b - a)[0] ?? 0;
+      const replyValue = candidate.score + bestCounter * .72 - reply.pressure * 1.08;
+      worstReply = Math.min(worstReply, replyValue);
+    }
+
+    const calculatedScore = Number.isFinite(worstReply) ? worstReply : candidate.score;
+    return calculatedScore > best.score ? { row: candidate.row, col: candidate.col, score: calculatedScore } : best;
+  }, { row: firstMoves[0]?.row ?? 7, col: firstMoves[0]?.col ?? 7, score: -Number.MAX_VALUE });
+}
+
+function chooseAiMove(board: Cell[][], difficulty: AiDifficulty) {
+  const candidates = nearbyCandidates(board);
+  if (!candidates.length) return { row: 7, col: 7 };
 
   if (difficulty === "easy") {
     return candidates[Math.floor(Math.random() * candidates.length)] ?? { row: 7, col: 7 };
@@ -83,13 +129,10 @@ function chooseAiMove(board: Cell[][], difficulty: AiDifficulty) {
     if (DIRECTIONS.some(([dr, dc]) => lineLength(board, candidate.row, candidate.col, "black", dr, dc) >= 5)) return candidate;
   }
 
+  if (difficulty === "hard") return chooseHardMove(board, candidates);
+
   return candidates.reduce((best, candidate) => {
-    const attack = placementScore(board, candidate.row, candidate.col, "white");
-    const defense = placementScore(board, candidate.row, candidate.col, "black");
-    const center = 14 - (Math.abs(candidate.row - 7) + Math.abs(candidate.col - 7));
-    const score = difficulty === "hard"
-      ? attack * 1.14 + defense * 1.26 + center * 2
-      : attack * 1.02 + defense * 1.04 + center;
+    const score = candidateScore(board, candidate.row, candidate.col, 1.02, 1.04);
     return score > best.score ? { ...candidate, score } : best;
   }, { row: 7, col: 7, score: -1 });
 }
@@ -206,7 +249,7 @@ export default function Home() {
                   <div className="difficulty-options" aria-label="选择 AI 难度">
                     <button onClick={() => selectMode("ai", "easy")}><strong>简单</strong><span>轻松落子</span></button>
                     <button className="recommended" onClick={() => selectMode("ai", "normal")}><strong>普通</strong><span>攻守均衡</span></button>
-                    <button onClick={() => selectMode("ai", "hard")}><strong>困难</strong><span>步步紧逼</span></button>
+                    <button onClick={() => selectMode("ai", "hard")}><strong>困难</strong><span>三步推演</span></button>
                   </div>
                 </div>
                 <button className="mode-option" onClick={() => selectMode("local")}>
